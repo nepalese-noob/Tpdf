@@ -11,7 +11,7 @@ logger = telebot.logger
 telebot.logger.setLevel(logging.INFO)  # Outputs debug messages to console.
 
 # Initialize bot with your token
-bot = telebot.TeleBot('YOUR_BOT_TOKEN')
+bot = os.getenv("BOT_TOKEN")
 
 # Flask app
 app = Flask(__name__)
