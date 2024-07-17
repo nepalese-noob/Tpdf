@@ -10,14 +10,23 @@ import logging
 logger = telebot.logger
 telebot.logger.setLevel(logging.INFO)  # Outputs debug messages to console.
 
+# Retrieve bot token from environment variable
+bot_token = os.getenv("BOT_TOKEN")
+if not bot_token:
+    raise ValueError("Bot token not found in environment variables")
+
 # Initialize bot with your token
-bot = os.getenv("BOT_TOKEN")
+bot = telebot.TeleBot(bot_token)
 
 # Flask app
 app = Flask(__name__)
 
+# Ensure directories exist
+os.makedirs('assets', exist_ok=True)
+os.makedirs('caches', exist_ok=True)
+
 # Dictionary to map callback data to PDF names
-callback_data_map = {}                                  
+callback_data_map = {}
 # Whitelisted chat IDs
 whitelisted_chat_ids = {1276272528, 6452553052, 5627720740, 6556467986}
 # Admin ID
@@ -232,79 +241,38 @@ def handle_pdf_callback(call, callback_data):
     pdf_file_id = None
 
     if pdf_name:
-        with open('assets/pdf_links.txt', 'r') as file:
-            for line in file:
-                parts = line.strip().split(':')
-                if len(parts) == 2:
-                    name, file_id = parts
+        pdf_links_path = os.path.join('assets', 'pdf_links.txt')
+
+        if os.path.exists(pdf_links_path):
+            with open(pdf_links_path, 'r') as file:
+                for line in file:
+                    name, file_id = line.strip().split(':')
                     if name == pdf_name:
                         pdf_file_id = file_id
                         break
 
-    if pdf_file_id:
-        if not has_downloaded_today(user_id):
-            bot.send_message(call.message.chat.id, "Please, take only one PDF per day. Thank you! ")
-            bot.send_document(call.message.chat.id, pdf_file_id)
-            update_download_date(user_id)
-            bot.send_message(admin_id, f"User {call.from_user.full_name} ({user_id}) downloaded the PDF: {pdf_name}.")
+        if pdf_file_id:
+            if has_downloaded_today(user_id):
+                bot.send_message(call.message.chat.id, "You have already downloaded a PDF today. Please try again tomorrow.")
+            else:
+                bot.send_document(call.message.chat.id, pdf_file_id)
+                update_download_date(user_id)
         else:
-            bot.send_message(call.message.chat.id, "You have already downloaded a PDF today. Please try again tomorrow.")
-            bot.send_message(admin_id, f"User {call.from_user.full_name} ({user_id}) tried to download the PDF: {pdf_name} but had already downloaded one today.")
+            bot.send_message(call.message.chat.id, "Sorry, this PDF is no longer available.")
     else:
-        bot.send_message(call.message.chat.id, "Sorry, the requested PDF could not be found.")
+        bot.send_message(call.message.chat.id, "Invalid PDF selection.")
 
-@bot.message_handler(func=lambda message: message.chat.id not in whitelisted_chat_ids)
-def handle_non_whitelisted(message):
-    bot.reply_to(message, "You are not authorized to use this bot.")
-    forward_to_admin(message)
-
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    user_id = message.from_user.id
-    question = get_next_question(user_id)
-    if question:
-        bot.send_message(message.chat.id, question)
-    else:
-        bot.reply_to(message, "Thank you! Your answers have been recorded.")
-        forward_to_admin(message)
-
-# Function to initialize pagination state for a user
-def initialize_pagination(user_id):
-    if user_id not in user_states:
-        user_states[user_id] = {}
-    if 'current_page' not in user_states[user_id]:
-        user_states[user_id]['current_page'] = 1
-
-# Function to update the current page for a user
-def update_current_page(user_id, page):
-    if user_id in user_states:
-        user_states[user_id]['current_page'] = page
-
-# Webhook URL (you need to set this to your Render URL)
-WEBHOOK_URL = 'https://tpdf.onrender.com/'  # Update this URL
-
-@app.route('/' + bot.token, methods=['POST'])
-def getMessage():
-    json_str = request.get_data().decode('UTF-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return '!', 200
-
-@app.route('/')
+# Main Flask route for webhook
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    bot.remove_webhook()
-    bot.set_webhook(url=WEBHOOK_URL + bot.token)
-    return 'Webhook set!', 200
+    if request.headers.get('content-type') == 'application/json':
+        json_str = request.get_data().decode('UTF-8')
+        update = telebot.types.Update.de_json(json_str)
+        bot.process_new_updates([update])
+        return 'OK', 200
+    else:
+        return 'Bad request', 400
 
-# Function to start polling (you can use this for local testing)
-def safe_polling(bot, interval=0.25, timeout=20, long_polling_timeout=30):
-    while True:
-        try:
-            bot.polling(non_stop=True, interval=interval, timeout=timeout, long_polling_timeout=long_polling_timeout)
-        except Exception as e:
-            logger.error(f'Error occurred: {e}')
-            time.sleep(15)  # Wait for 15 seconds before retrying
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-    # safe_polling(bot)  # Uncomment this line if you want to use polling for local testing
+if __name__ == "__main__":
+    app.run()
+    
