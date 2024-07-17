@@ -281,7 +281,7 @@ def update_current_page(user_id, page):
         user_states[user_id]['current_page'] = page
 
 # Webhook URL (you need to set this to your Render URL)
-WEBHOOK_URL = 'https://<your-app-name>.onrender.com/'  # Update this URL
+WEBHOOK_URL = 'https://tpdf.onrender.com/'  # Update this URL
 
 @app.route('/' + bot.token, methods=['POST'])
 def getMessage():
